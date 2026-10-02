@@ -1,2 +1,2 @@
 # Repository for GEOS 472.
-Tuum Est
+Sketches will be posted here.
