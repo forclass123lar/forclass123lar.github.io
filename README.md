@@ -1,2 +1,2 @@
-# forclass123lar.github.io
-Repository for GEOS 472.
+# Repository for GEOS 472.
+Tuum Est
