@@ -1,17 +1,25 @@
 function setup() {
-    createCanvas(800, 600);
+  createCanvas(500, 300);
 }
 
 function draw() {
-    background("yellow");
-    //circle in the center with a width of 100
-    //when mouse button is pressed, circles turn black
-    if (mouseIsPressed === true) {
-    fill(0);
-} else {
-  fill(255);
-}
+  background(1, 75, 100);
 
-//white circles drawn at mouse position
-circle(mouseX, mouseY, 100);
+  // circle properties
+  fill(237, 34, 93);
+  noStroke();
+  var diameter = 50;
+
+  for (var i = 0; i < width / diameter; i = i + 1) {
+    for (var j = 0; j < height / diameter; j = j + 1) {
+      ellipse(
+        diameter / 2 + i * diameter,
+        diameter / 2 + j * diameter,
+        // applying a different animation to each circle
+        diameter * noise(frameCount / 100 + j * 10000 + i * 10000),
+        // applying a different animation to each circle
+        diameter * noise(frameCount / 100 + j * 10000 + i * 10000)
+      );
+    }
+  }
 }
