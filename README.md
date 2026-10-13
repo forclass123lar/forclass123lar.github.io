@@ -5,5 +5,4 @@ Sketches will be posted here.
 
 <iframe src="https://forclass123lar.github.io/help-frieds.html" height="800" width="420"></iframe>
 
-<iframe src="https://forclass123lar.github.io/test-mosh.html" height="800" width="420"></iframe>
-
+<iframe src='http://mattbierbaum.github.com/moshpits.js/embed' width='404' height='430' scrolling='no' frameborder='0'>
