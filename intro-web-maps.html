@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Meteorites + 3D buildings + topography</title>
+  <title>Meteorites Landings</title>
   <link href="https://cdn.jsdelivr.net/npm/maplibre-gl@5.24.0/dist/maplibre-gl.css" rel="stylesheet">
   <script src="https://cdn.jsdelivr.net/npm/maplibre-gl@5.24.0/dist/maplibre-gl.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/p5@1.11.13/lib/p5.min.js"></script>
@@ -254,11 +254,13 @@ function draw() {
     const pos = latLngToPixel(lat, lng);
     const size = symbolSize(meteorites.getNum(i, 'mass (g)'));
     if (meteorites.getString(i, 'fall') === 'Fell') {
-      fill(220, 60, 30, 200);
-      stroke(120, 20, 0);
+      fill(233, 21, 184);
+      strokeWeight(0.1);
+      
     } else {
-      fill(40, 90, 200, 70);
-      noStroke();
+      fill(57, 128, 235);
+      strokeWeight(1);
+      stroke(51);
     }
     ellipse(pos.x, pos.y, size, size);
   }
@@ -273,14 +275,14 @@ function drawLegend() {
   fill(30); 
   textSize(13);
   text("Meteorites in NASA's catalogue (area follows mass)", x, y - 10);
-  fill(220, 60, 30, 200); 
+  fill(233, 21, 184); 
   stroke(120, 20, 0); 
   strokeWeight(1.5);
   ellipse(x + 8, y + 12, 12, 12);
   noStroke(); 
   fill(30);
   text('seen falling ("Fell")', x + 24, y + 16);
-  fill(40, 90, 200, 120);
+  fill(57, 128, 235);
   ellipse(x + 8, y + 36, 12, 12);
   fill(30);
   text('found later ("Found")', x + 24, y + 40);
