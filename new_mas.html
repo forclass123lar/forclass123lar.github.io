@@ -1,0 +1,293 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Meteorites + 3D buildings + topography</title>
+  <link href="https://cdn.jsdelivr.net/npm/maplibre-gl@5.24.0/dist/maplibre-gl.css" rel="stylesheet">
+  <script src="https://cdn.jsdelivr.net/npm/maplibre-gl@5.24.0/dist/maplibre-gl.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/p5@1.11.13/lib/p5.min.js"></script>
+  <style>
+    body { margin: 0; }
+    #map { position: absolute; inset: 0; }
+    #map canvas.p5Canvas { position: absolute; top: 0; left: 0; pointer-events: none; z-index: 1; }
+    #panel { position: absolute; top: 10px; left: 10px; z-index: 5; background: rgba(0,0,0,.75); 
+   color:#fff; padding: 10px 12px; border-radius: 8px; font-size: 13px; line-height: 1.9; }
+    #panel label { display: block; cursor: pointer; }
+  </style>
+</head>
+<body>
+<div id="map"></div>
+
+<div id="panel">
+  <label><input type="checkbox" id="t3d" checked> 3D mode (tilt + buildings)</label>
+  <label><input type="checkbox" id="ttopo"> Topography (contours + relief)</label>
+  <label><input type="checkbox" id="ttrails"> Hiking Trails</label>
+</div>
+
+<script>
+const myMap = new maplibregl.Map({
+  container: 'map',
+  center: [-123.25, 49.26],
+  zoom: 2.5,
+  pitch: 45,
+  bearing: -17.6,
+  style: 'https://tiles.openfreemap.org/styles/positron',
+  canvasContextAttributes: { antialias: true }
+});
+myMap.addControl(new maplibregl.NavigationControl());
+myMap.addControl(new maplibregl.ScaleControl({ unit: 'metric' }));
+
+myMap.on('load', () => {
+  const layers = myMap.getStyle().layers;
+  let labelLayerId;
+  for (const l of layers) {
+    if (l.type === 'symbol' && l.layout && l.layout['text-field']) { 
+      labelLayerId = l.id; break; 
+    }
+  }
+
+  // Topography: OpenTopoMap raster tiles (contour lines, shaded relief, trails, peaks)
+  // https://wiki.openstreetmap.org/wiki/OpenTopoMap 
+  myMap.addSource('topo', {
+    type: 'raster',
+    tiles: ['https://tile.opentopomap.org/{z}/{x}/{y}.png'],
+    tileSize: 256, maxzoom: 17,
+    attribution: 'Map data © OpenStreetMap contributors, SRTM | Style © OpenTopoMap (CC-BY-SA)'
+  });
+  myMap.addLayer({ 
+    id: 'topo', 
+    type: 'raster', 
+    source: 'topo',
+    layout: { 
+      visibility: 'none' 
+    }, 
+    paint: { 
+      'raster-opacity': 0.8
+    } }, 
+    labelLayerId);
+
+  // Trails: Hiking routes (transparent overlay)
+  myMap.addSource('trails', {
+    type: 'raster',
+    tiles: ['https://tile.waymarkedtrails.org/hiking/{z}/{x}/{y}.png'],
+    tileSize: 256, maxzoom: 18,
+    attribution: '© waymarkedtrails.org, OpenStreetMap contributors'
+  });
+  myMap.addLayer({ 
+    id: 'trails', 
+    type: 'raster', 
+    source: 'trails', 
+    layout: { 
+      visibility: 'none' 
+    } 
+  }, 
+  labelLayerId);
+
+  // 3D buildings
+  myMap.addSource('openfreemap', { url: 'https://tiles.openfreemap.org/planet', type: 'vector' });
+  myMap.addLayer({
+    id: '3d-buildings',
+    source: 'openfreemap',
+    'source-layer': 'building',
+    type: 'fill-extrusion',
+    minzoom: 15,
+    filter: ['!=', ['get', 'hide_3d'], true],
+    paint: {
+      'fill-extrusion-color': [
+        'interpolate', 
+        ['linear'], 
+        ['get', 'render_height'],
+        0, 
+        'lightgray', 
+        200, 
+        'royalblue',
+        400, 
+        'lightblue'],
+      'fill-extrusion-height': [
+        'interpolate', 
+        ['linear'], 
+        ['zoom'], 
+        15, 0, 16, 
+        ['get', 
+        'render_height']],
+      'fill-extrusion-base':   [
+        'interpolate', 
+        ['linear'], 
+        ['zoom'], 
+        15, 0, 16, 
+        ['get', 'render_min_height']
+      ]
+    }
+  }, labelLayerId);
+});
+
+
+function setVisible(id, on) {
+  if (myMap.getLayer(id)) {
+    let visibility;
+    if (on) {
+      visibility = 'visible';
+    } else {
+      visibility = 'none';
+    } 
+    myMap.setLayoutProperty(id, 'visibility', visibility);
+  }
+}
+
+document.getElementById('t3d').addEventListener('change', e => {
+  const on = e.target.checked;
+  setVisible('3d-buildings', on);
+  let pitch, bearing;
+  if (on) {
+    pitch = 60;
+    bearing = -17.6;
+  } else {
+    pitch = 0;
+    bearing = 0;
+  }
+  myMap.easeTo({ pitch: pitch, bearing: bearing, duration: 800 });
+});
+
+document.getElementById('ttopo').addEventListener('change', e => setVisible('topo', e.target.checked));
+document.getElementById('ttrails').addEventListener('change', e => setVisible('trails', e.target.checked));
+
+
+function latLngToPixel(lat, lng) { return myMap.project([lng, lat]); }
+function pixelToLatLng(x, y)     { const ll = myMap.unproject([x, y]); return { lat: ll.lat, lng: ll.lng }; }
+
+let meteorites;
+
+function preload() { meteorites = loadTable('Meteorite_Landings.csv', 'csv', 'header'); }
+
+function setup() {
+  const canvas = createCanvas(windowWidth, windowHeight);
+  canvas.parent('map');
+  myMap.on('move', () => redraw());
+  myMap.on('click', showMeteoriteInfo);
+  noLoop();
+}
+
+function symbolSize(massInGrams) { return 2 + 38 * sqrt(massInGrams / 60000000); }
+
+
+
+// Show meteorite CSV data in a popup
+function showMeteoriteInfo(e) {
+  let closestRow = -1;
+  let closestDist = Infinity;
+ 
+  for (let i = 0; i < meteorites.getRowCount(); i++) {
+    const lat = meteorites.getNum(i, 'reclat');
+    const lng = meteorites.getNum(i, 'reclong');
+    if (isNaN(lat) || isNaN(lng)) continue;
+ 
+    const pos = latLngToPixel(lat, lng);
+    const dx = pos.x - e.point.x;
+    const dy = pos.y - e.point.y;
+    const dist = Math.sqrt(dx * dx + dy * dy);
+ 
+    // click must land inside the symbol
+    const size = symbolSize(meteorites.getNum(i, 'mass (g)'));
+    const hitRadius = Math.max(size / 2 + 2, 8);
+ 
+    if (dist <= hitRadius && dist < closestDist) {
+      closestDist = dist;
+      closestRow = i;
+    }
+  }
+
+  // clicked empty map
+  if (closestRow === -1) return;   
+ 
+  const r = closestRow;
+  let status = 'Found';
+  if (meteorites.getString(r, 'fall') === 'Fell') {
+    status = 'Seen falling';
+  }
+ 
+  // keep only the year
+  let year = meteorites.getString(r, 'year');
+  const datePieces = year.split(' ')[0].split('/');
+  if (datePieces.length === 3) {
+    year = datePieces[2];
+  }
+  if (year === '') {
+    year = 'Unknown';
+  }
+ 
+  // Build popup info
+  const box = document.createElement('div');
+ 
+  const title = document.createElement('strong');
+  title.textContent = meteorites.getString(r, 'name');
+  box.appendChild(title);
+ 
+  const lines = [
+    'Class: ' + meteorites.getString(r, 'recclass'),
+    'Mass: ' + meteorites.getString(r, 'mass (g)') + ' g',
+    'Status: ' + status,
+    'Year: ' + year,
+    'Lat/Lng: ' + meteorites.getNum(r, 'reclat').toFixed(3) + ', ' + 
+     meteorites.getNum(r, 'reclong').toFixed(3)
+  ];
+ 
+  for (const line of lines) {
+    const row = document.createElement('div');
+    row.textContent = line;
+    box.appendChild(row);
+  }
+ 
+  new maplibregl.Popup({ closeButton: true, maxWidth: '260px' })
+    .setLngLat([meteorites.getNum(r, 'reclong'), meteorites.getNum(r, 'reclat')])
+    .setDOMContent(box)
+    .addTo(myMap);
+}
+
+function draw() {
+  clear();
+  const bounds = myMap.getBounds();
+  for (let i = 0; i < meteorites.getRowCount(); i++) {
+    const lat = meteorites.getNum(i, 'reclat');
+    const lng = meteorites.getNum(i, 'reclong');
+    if (!bounds.contains([lng, lat])) continue;
+    const pos = latLngToPixel(lat, lng);
+    const size = symbolSize(meteorites.getNum(i, 'mass (g)'));
+    if (meteorites.getString(i, 'fall') === 'Fell') {
+      fill(220, 60, 30, 200);
+      stroke(120, 20, 0);
+    } else {
+      fill(40, 90, 200, 70);
+      noStroke();
+    }
+    ellipse(pos.x, pos.y, size, size);
+  }
+  drawLegend();
+}
+
+function drawLegend() {
+  const x = 20, y = height - 70;
+  noStroke(); 
+  fill(255, 255, 255, 210);
+  rect(x - 10, y - 30, 340, 90, 6);
+  fill(30); 
+  textSize(13);
+  text("Meteorites in NASA's catalogue (area follows mass)", x, y - 10);
+  fill(220, 60, 30, 200); 
+  stroke(120, 20, 0); 
+  strokeWeight(1.5);
+  ellipse(x + 8, y + 12, 12, 12);
+  noStroke(); 
+  fill(30);
+  text('seen falling ("Fell")', x + 24, y + 16);
+  fill(40, 90, 200, 120);
+  ellipse(x + 8, y + 36, 12, 12);
+  fill(30);
+  text('found later ("Found")', x + 24, y + 40);
+  strokeWeight(1);   // reset for symbols in next draw() 
+  }
+
+function windowResized() { resizeCanvas(windowWidth, windowHeight); redraw(); }
+</script>
+</body>
+</html>
