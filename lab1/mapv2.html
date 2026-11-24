@@ -1,0 +1,564 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>eGRID 2023 subregions</title>
+  <link href="https://cdn.jsdelivr.net/npm/maplibre-gl@5.24.0/dist/maplibre-gl.css" rel="stylesheet">
+  <script src="https://cdn.jsdelivr.net/npm/maplibre-gl@5.24.0/dist/maplibre-gl.js"></script>
+  <style>
+    body { margin: 0; font-family: sans-serif; }
+    #map { position: absolute; inset: 0; }
+    .box { position: absolute; background: #fff; padding: 10px 12px; border-radius: 4px;
+           box-shadow: 0 1px 4px rgba(0,0,0,.3); font-size: 13px; }
+
+    #title-box { top: 10px; left: 10px; max-width: 300px; }
+    #title-box h1 { margin: 0 0 2px; font-size: 17px; }
+    #subtitle { color: #555; font-size: 12px; margin-bottom: 8px; }
+    #title-box label { display: block; margin-bottom: 4px; font-weight: bold; }
+    #title-box select { width: 100%; margin-bottom: 8px; }
+
+    #legend { bottom: 30px; left: 10px; width: 250px; }
+    #legend h3 { margin: 0 0 6px; font-size: 13px; }
+    #bar { height: 12px; background: linear-gradient(to right, rgba(33,102,172,.75), rgba(247,247,247,.75), rgba(178,24,43,.75)); border: 1px solid #ccc; }
+    #ticks { display: flex; justify-content: space-between; font-size: 11px; margin-top: 2px; }
+    #legend .note { font-size: 11px; color: #555; margin-top: 6px; line-height: 1.3; }
+    #category-key { display: none; grid-template-columns: 1fr 1fr; gap: 3px 10px; font-size: 11px; margin-top: 6px; }
+    #category-key .swatch { display: inline-block; width: 10px; height: 10px; margin-right: 5px; border: 1px solid #999; vertical-align: middle; }
+    #plant-key { display: none; margin-top: 6px; font-size: 11px; align-items: center; gap: 6px; }
+    #plant-key span.dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: #333; border: 1px solid #fff; box-shadow: 0 0 0 1px #999; }
+
+    #credits { bottom: 30px; right: 10px; max-width: 280px; font-size: 11px; line-height: 1.4; color: #333; }
+    #credits a { color: #1a5fb4; }
+
+    .maplibregl-popup-content { font-size: 12px; padding: 10px 12px; }
+    .maplibregl-popup-content h4 { margin: 0 0 6px; font-size: 14px; }
+    .maplibregl-popup-content table { border-collapse: collapse; }
+    .maplibregl-popup-content th, .maplibregl-popup-content td { padding: 2px 8px; text-align: right; }
+    .maplibregl-popup-content th:first-child, .maplibregl-popup-content td:first-child { text-align: left; }
+    .maplibregl-popup-content thead th { border-bottom: 1px solid #aaa; }
+    .maplibregl-popup-content tr.active { background: #fbefc4; font-weight: bold; }
+  </style>
+</head>
+<body>
+  <div id="map"></div>
+
+  <div id="title-box" class="box">
+    <h1 id="map-title">Net Generation Mix by Fuel Type in eGRID Subregions (2023)</h1>
+    <div id="subtitle"></div>
+    <label for="column-select">Color map by</label>
+    <select id="column-select">
+      <optgroup label="Share of net generation" id="fuel-options"></optgroup>
+      <optgroup label="Top fuel type">
+        <option value="top_fuel">Largest share in each region</option>
+      </optgroup>
+    </select>
+    <label style="font-weight: normal;"><input type="checkbox" id="plants-toggle"> Show power plants</label>
+    <label style="font-weight: normal;"><input type="checkbox" id="basemap-toggle" checked> Show background map</label>
+  </div>
+
+  <div id="legend" class="box">
+    <h3 id="legend-title"></h3>
+    <div id="bar"></div>
+    <div id="ticks"><span id="t0">0</span><span id="t1"></span><span id="t2"></span></div>
+    <div class="note" id="legend-note"></div>
+    <div id="category-key"></div>
+    <div id="plant-key"><span class="dot"></span> Power plant</div>
+  </div>
+
+  <div id="credits" class="box">
+    <b>Data:</b> U.S. EPA, <a href="https://www.epa.gov/egrid" target="_blank">eGRID 2023</a> (subregion boundaries, power plants and generation mix).<br>
+    <b>Map tiles:</b> &copy; <a href="https://www.maptiler.com/copyright/" target="_blank">MapTiler</a>
+    &copy; <a href="https://www.openstreetmap.org/copyright" target="_blank">OpenStreetMap contributors</a>
+    (OpenMapTiles, Positron style).<br>
+    <b>Built with:</b> <a href="https://maplibre.org/" target="_blank">MapLibre GL JS</a>
+  </div>
+
+  <script>
+    var POLYGON_LAYER = 'joined_layer_egrid';
+    var POLYGON_SOURCE = 'joined_layer_egrid';
+    var POINT_LAYER = 'point_layer_plants';
+
+    // CSV with one row per subregion (change this to your file name)
+    var CSV_URL = 'egrid_fuel_mix.csv';
+
+    // Fuel codes better written (same order as the table)
+    var FUELS = {
+      COAL: 'Coal',
+      OIL: 'Oil',
+      GAS: 'Gas',
+      OFSL: 'Other fossil',
+      NUCLEAR: 'Nuclear',
+      HYDRO: 'Hydro',
+      BIOMASS: 'Biomass',
+      WIND: 'Wind',
+      SOLAR: 'Solar',
+      GEOTHERMAL: 'Geothermal',
+      OTHF: 'Other unknown / purchased fuel'
+    };
+
+    // CSV column headers (lowercase, letters only) -> fuel code
+    var HEADER_TO_FUEL = {
+      coal: 'COAL',
+      oil: 'OIL',
+      gas: 'GAS',
+      otherfossil: 'OFSL',
+      nuclear: 'NUCLEAR',
+      hydro: 'HYDRO',
+      biomass: 'BIOMASS',
+      wind: 'WIND',
+      solar: 'SOLAR',
+      geothermal: 'GEOTHERMAL'
+    };
+
+    // One color per fuel (Okabe-Ito based colorblind-friendly palette)
+    var FUEL_COLORS = {
+      BIOMASS:    'rgba(0, 158, 115, 0.75)',
+      COAL:       'rgba(77, 77, 77, 0.75)',
+      GAS:        'rgba(230, 159, 0, 0.75)',
+      GEOTHERMAL: 'rgba(204, 121, 167, 0.75)',
+      HYDRO:      'rgba(0, 114, 178, 0.75)',
+      NUCLEAR:    'rgba(240, 228, 66, 0.75)',
+      OFSL:       'rgba(166, 118, 29, 0.75)',
+      OIL:        'rgba(213, 94, 0, 0.75)',
+      OTHF:       'rgba(179, 179, 179, 0.75)',
+      SOLAR:      'rgba(86, 180, 233, 0.75)',
+      WIND:       'rgba(123, 50, 148, 0.75)'
+    };
+
+    var NO_DATA_COLOR = 'rgba(200, 200, 200, 0.75)';
+
+    // Fill the dropdown with one option per fuel
+    var optionsHtml = '';
+    for (var code in FUELS) {
+      optionsHtml += '<option value="pct_' + code + '">' + FUELS[code] + '</option>';
+    }
+    document.getElementById('fuel-options').innerHTML = optionsHtml;
+
+    // Build the categorical legend swatches once
+    var keyHtml = '';
+    for (var code2 in FUELS) {
+      keyHtml += '<div><span class="swatch" style="background:' + FUEL_COLORS[code2] + '"></span>' + FUELS[code2] + '</div>';
+    }
+    document.getElementById('category-key').innerHTML = keyHtml;
+
+    var map = new maplibregl.Map({
+      container: 'map',
+      style: 'joined_info_style.json',
+      center: [-98, 39],
+      zoom: 3.5
+    });
+    map.addControl(new maplibregl.NavigationControl());
+
+    var select = document.getElementById('column-select');
+
+    // Max value found in each column (filled in after the data loads)
+    var maxByColumn = {};
+
+
+    // ---------- CSV reading ----------
+
+    // Lowercase and keep letters only, so "Geo- thermal" becomes "geothermal"
+    function normalize(text) {
+      return String(text).toLowerCase().replace(/[^a-z]/g, '');
+    }
+
+    // Split CSV text into rows of cells (handles quotes and line breaks inside quotes)
+    function parseCsv(text, delimiter) {
+      var rows = [];
+      var row = [];
+      var field = '';
+      var inQuotes = false;
+
+      for (var i = 0; i < text.length; i++) {
+        var ch = text[i];
+        if (inQuotes) {
+          if (ch === '"') {
+            if (text[i + 1] === '"') {
+              field += '"';
+              i++;
+            } else {
+              inQuotes = false;
+            }
+          } else {
+            field += ch;
+          }
+        } else if (ch === '"') {
+          inQuotes = true;
+        } else if (ch === delimiter) {
+          row.push(field);
+          field = '';
+        } else if (ch === '\n' || ch === '\r') {
+          if (ch === '\r' && text[i + 1] === '\n') {
+            i++;
+          }
+          row.push(field);
+          field = '';
+          rows.push(row);
+          row = [];
+        } else {
+          field += ch;
+        }
+      }
+      if (field !== '' || row.length > 0) {
+        row.push(field);
+        rows.push(row);
+      }
+      return rows;
+    }
+
+    // Try comma, semicolon and tab, and keep the one that gives the most columns
+    function readCsv(text) {
+      text = text.replace(/^\uFEFF/, '');
+      var delimiters = [',', ';', '\t'];
+      var best = [];
+      for (var i = 0; i < delimiters.length; i++) {
+        var rows = parseCsv(text, delimiters[i]);
+        if (rows.length > 0 && (best.length === 0 || rows[0].length > best[0].length)) {
+          best = rows;
+        }
+      }
+      return best;
+    }
+
+    // "14,3%" or "14.3" or " 14,3 % " -> 14.3
+    function parsePercent(cell) {
+      var s = String(cell).replace('%', '').replace(/\s/g, '').replace(',', '.');
+      var n = parseFloat(s);
+      if (isNaN(n)) {
+        return 0;
+      }
+      return n;
+    }
+
+    // Copy the CSV percentages onto the polygon properties (matched on subregion acronym)
+    function joinCsv(geojson, rows) {
+      // Find the header row (the one with a "Coal" column)
+      var headerIndex = -1;
+      for (var r = 0; r < rows.length; r++) {
+        for (var c = 0; c < rows[r].length; c++) {
+          if (normalize(rows[r][c]) === 'coal') {
+            headerIndex = r;
+            break;
+          }
+        }
+        if (headerIndex !== -1) {
+          break;
+        }
+      }
+      if (headerIndex === -1) {
+        throw new Error('no "Coal" column found in the CSV');
+      }
+
+      // Work out which column is the acronym and which column is which fuel
+      var header = rows[headerIndex];
+      var acronymCol = -1;
+      var fuelCols = {};
+      for (var j = 0; j < header.length; j++) {
+        var name = normalize(header[j]);
+        if (name.indexOf('acronym') !== -1) {
+          acronymCol = j;
+        } else if (HEADER_TO_FUEL[name]) {
+          fuelCols[HEADER_TO_FUEL[name]] = j;
+        } else if (name.indexOf('otherunknown') === 0) {
+          fuelCols.OTHF = j;
+        }
+      }
+      if (acronymCol === -1) {
+        throw new Error('no subregion acronym column found in the CSV');
+      }
+
+      // One entry per subregion
+      var bySubregion = {};
+      var biggest = 0;
+      for (var i = headerIndex + 1; i < rows.length; i++) {
+        var key = String(rows[i][acronymCol] || '').trim().toUpperCase();
+        if (key === '') {
+          continue;
+        }
+        var values = {};
+        for (var fuel in fuelCols) {
+          values[fuel] = parsePercent(rows[i][fuelCols[fuel]]);
+          if (values[fuel] > biggest) {
+            biggest = values[fuel];
+          }
+        }
+        bySubregion[key] = values;
+      }
+
+      // If the CSV stores shares as 0-1 instead of 0-100, convert to percent
+      var factor = 1;
+      if (biggest <= 1) {
+        factor = 100;
+      }
+
+      var unmatched = [];
+      for (var f = 0; f < geojson.features.length; f++) {
+        var props = geojson.features[f].properties;
+
+        // Remove any old fuel columns so the old data can't leak through
+        for (var oldKey in props) {
+          if (oldKey.indexOf('n_') === 0 || oldKey.indexOf('pct_') === 0) {
+            delete props[oldKey];
+          }
+        }
+
+        var match = bySubregion[String(props.Subregion).trim().toUpperCase()];
+        if (!match) {
+          unmatched.push(props.Subregion);
+          continue;
+        }
+        for (var code in FUELS) {
+          props['pct_' + code] = (match[code] || 0) * factor;
+        }
+      }
+      if (unmatched.length > 0) {
+        console.log('Subregions with no row in the CSV:', unmatched);
+      }
+      return geojson;
+    }
+
+
+    // ---------- Colors ----------
+
+    // Fill-color expression: pick the fuel with the largest share in each region
+    function topFuelColor() {
+      var codes = Object.keys(FUELS);
+      var expr = ['case', ['!', ['has', 'pct_COAL']], NO_DATA_COLOR];
+      for (var i = 0; i < codes.length; i++) {
+        var conditions = ['all'];
+        for (var j = 0; j < codes.length; j++) {
+          if (i !== j) {
+            conditions.push(['>=',
+              ['coalesce', ['get', 'pct_' + codes[i]], 0],
+              ['coalesce', ['get', 'pct_' + codes[j]], 0]]);
+          }
+        }
+        expr.push(conditions, FUEL_COLORS[codes[i]]);
+      }
+      expr.push(NO_DATA_COLOR);
+      return expr;
+    }
+
+    // Same logic in plain JS, used by the popup (ties go to the fuel listed first in FUELS)
+    function topFuelOf(props) {
+      var best = null;
+      var bestValue = -1;
+      for (var code in FUELS) {
+        var value = props['pct_' + code] || 0;
+        if (value > bestValue) {
+          best = code;
+          bestValue = value;
+        }
+      }
+      return best;
+    }
+
+    // Change the map colors, legend and subtitle to match the chosen column
+    function colorBy(column) {
+      var bar = document.getElementById('bar');
+      var ticks = document.getElementById('ticks');
+      var categoryKey = document.getElementById('category-key');
+
+      // Top fuel mode: categorical colors and legend
+      if (column === 'top_fuel') {
+        map.setPaintProperty(POLYGON_LAYER, 'fill-color', topFuelColor());
+        bar.style.display = 'none';
+        ticks.style.display = 'none';
+        categoryKey.style.display = 'grid';
+        document.getElementById('subtitle').textContent = 'Fuel with the largest share of net generation (by subregion)';
+        document.getElementById('legend-title').textContent = 'Largest fuel share';
+        document.getElementById('legend-note').textContent = 'Fuel that supplies the biggest share of net generation in each subregion.';
+        return;
+      }
+      bar.style.display = 'block';
+      ticks.style.display = 'flex';
+      categoryKey.style.display = 'none';
+
+      var fuelCode = column.split('_')[1];
+      var fuelName = FUELS[fuelCode];
+
+      // Top of the color scale. If we don't know it yet, use 100.
+      var max = maxByColumn[column];
+      if (!max) {
+        max = 100;
+      }
+      var middle = max / 2;
+
+      map.setPaintProperty(POLYGON_LAYER, 'fill-color', [
+        'case',
+        ['has', column],
+        ['interpolate', ['linear'], ['get', column],
+          0, 'rgba(33, 102, 172, 0.75)',
+          middle, 'rgba(247, 247, 247, 0.75)',
+          max, 'rgba(178, 24, 43, 0.75)'],
+        NO_DATA_COLOR
+      ]);
+
+      // Legend labels
+      document.getElementById('t0').textContent = '0%';
+      document.getElementById('t1').textContent = Number(middle.toFixed(1)) + '%';
+      document.getElementById('t2').textContent = Number(max.toFixed(1)) + '%';
+
+      document.getElementById('subtitle').textContent = 'Share of net generation from ' + fuelName.toLowerCase() + ' (by subregion)';
+      document.getElementById('legend-title').textContent = 'Share of net generation: ' + fuelName;
+      document.getElementById('legend-note').textContent = 'Percent of the subregion\u2019s net generation that comes from this fuel (0-100%).';
+    }
+
+
+    // table shown in the popup
+    function makePopupHtml(props, column) {
+      if (props.pct_COAL === undefined) {
+        return '<h4>eGRID subregion: ' + props.Subregion + '</h4>No data for this subregion.';
+      }
+
+      var activeFuel = (column === 'top_fuel') ? topFuelOf(props) : column.split('_')[1];
+      var rows = '';
+
+      for (var code in FUELS) {
+        var percent = props['pct_' + code];
+        if (percent === undefined) {
+          percent = '-';
+        } else {
+          percent = Number(percent).toFixed(1) + '%';
+        }
+
+        var rowClass = '';
+        if (code === activeFuel) {
+          rowClass = 'active';
+        }
+
+        rows = rows + '<tr class="' + rowClass + '">' +
+          '<td>' + FUELS[code] + '</td>' +
+          '<td>' + percent + '</td>' +
+          '</tr>';
+      }
+
+      return '<h4>eGRID subregion: ' + props.Subregion + '</h4>' +
+        '<table><thead><tr><th>Fuel</th><th>Share of net generation</th></tr></thead>' +
+        '<tbody>' + rows + '</tbody></table>';
+    }
+
+    // Look through the data and remember the biggest value in each column
+    function findMaxValues(geojson) {
+      for (var i = 0; i < geojson.features.length; i++) {
+        var props = geojson.features[i].properties;
+        for (var key in props) {
+          var value = props[key];
+          if (key.indexOf('pct_') === 0 && typeof value === 'number') {
+            if (maxByColumn[key] === undefined || value > maxByColumn[key]) {
+              maxByColumn[key] = value;
+            }
+          }
+        }
+      }
+    }
+
+
+    // Runs once the map and style have finished loading
+    map.on('load', function () {
+
+      // Color the map (gray until the CSV is joined)
+      colorBy(select.value);
+
+      // Load the polygons and the CSV, join them, and put the result back on the map
+      var dataUrl = map.getSource(POLYGON_SOURCE).serialize().data;
+      Promise.all([
+        fetch(dataUrl).then(function (response) {
+          return response.json();
+        }),
+        fetch(CSV_URL).then(function (response) {
+          if (!response.ok) {
+            throw new Error(CSV_URL + ' not found');
+          }
+          return response.text();
+        })
+      ])
+        .then(function (results) {
+          var geojson = joinCsv(results[0], readCsv(results[1]));
+          findMaxValues(geojson);
+          map.getSource(POLYGON_SOURCE).setData(geojson);
+          colorBy(select.value);
+        })
+        .catch(function (error) {
+          console.error('Could not load or join the data', error);
+          document.getElementById('subtitle').textContent = 'Could not load the data: ' + error.message;
+        });
+
+      // Look power plant points
+      map.setPaintProperty(POINT_LAYER, 'circle-radius', 3);
+      map.setPaintProperty(POINT_LAYER, 'circle-color', '#333333');
+      map.setPaintProperty(POINT_LAYER, 'circle-stroke-color', '#ffffff');
+      map.setPaintProperty(POINT_LAYER, 'circle-stroke-width', 0.5);
+
+      // Region names at the center of each polygon (under the plant points).
+      // If no labels show, replace the font with one used in joined_info_style.json
+      map.addLayer({
+        id: 'subregion-labels',
+        type: 'symbol',
+        source: POLYGON_SOURCE,
+        layout: {
+          'text-field': ['get', 'Subregion'],
+          'text-font': ['Noto Sans Regular'],
+          'text-size': 12
+        },
+        paint: {
+          'text-color': '#222222',
+          'text-halo-color': '#ffffff',
+          'text-halo-width': 1.5
+        }
+      }, POINT_LAYER);
+
+      // Click a region to open the popup for the egrid regions only (too many points to do anything like this)
+      map.on('click', POLYGON_LAYER, function (e) {
+        var props = e.features[0].properties;
+        new maplibregl.Popup({ maxWidth: '300px' })
+          .setLngLat(e.lngLat)
+          .setHTML(makePopupHtml(props, select.value))
+          .addTo(map);
+      });
+
+      // Mouse action when hovering a region
+      map.on('mouseenter', POLYGON_LAYER, function () {
+        map.getCanvas().style.cursor = 'pointer';
+      });
+      map.on('mouseleave', POLYGON_LAYER, function () {
+        map.getCanvas().style.cursor = '';
+      });
+    });
+
+
+    // When the dropdown changes, recolor the map
+    select.addEventListener('change', function () {
+      colorBy(select.value);
+    });
+
+
+    // Show or hide the background map
+    document.getElementById('basemap-toggle').addEventListener('change', function (e) {
+      var visibility = 'none';
+      if (e.target.checked) {
+        visibility = 'visible';
+      }
+
+      var layers = map.getStyle().layers;
+      for (var i = 0; i < layers.length; i++) {
+        if (layers[i].source === 'openmaptiles') {
+          map.setLayoutProperty(layers[i].id, 'visibility', visibility);
+        }
+      }
+    });
+
+
+    // Show or hide the power plants points layer
+    document.getElementById('plants-toggle').addEventListener('change', function (e) {
+      if (e.target.checked) {
+        map.setLayoutProperty(POINT_LAYER, 'visibility', 'visible');
+        document.getElementById('plant-key').style.display = 'flex';
+      } else {
+        map.setLayoutProperty(POINT_LAYER, 'visibility', 'none');
+        document.getElementById('plant-key').style.display = 'none';
+      }
+    });
+  </script>
+</body>
+</html>
