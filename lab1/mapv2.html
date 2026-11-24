@@ -25,6 +25,10 @@
   <script>
     var LAYER = 'joined_layer_egrid';
 
+    // Fuel property names exactly as they appear in the geojson
+    var FUELS = ['Coal', 'Oil', 'Gas', 'Other Fossil', 'Nuclear', 'Hydro', 'Biomass',
+                 'Wind', 'Solar', 'Geo- thermal', 'Other unknown/ purchased fuel'];
+
     var map = new maplibregl.Map({
       container: 'map',
       style: 'joined_info_style.json',
@@ -33,8 +37,9 @@
     });
 
     var select = document.getElementById('fuel');
+    FUELS.forEach(f => select.add(new Option(f.replace('- ', ''), f)));
 
-    // Color the polygons by the selected fuel column
+    // Color the polygons by the selected fuel
     function colorMap() {
       map.setPaintProperty(LAYER, 'fill-color', [
         'interpolate', ['linear'], ['get', select.value],
@@ -47,27 +52,13 @@
     map.on('load', function () {
       var url = map.getSource(LAYER).serialize().data;
 
-      Promise.all([
-        fetch(url).then(r => r.json()),
-        fetch('egrid_fuel_mix.csv').then(r => r.text())
-      ]).then(function (results) {
-        var geojson = results[0];
-        var rows = results[1].trim().split('\n').map(line => line.split(','));
-        var header = rows[0].map(h => h.trim());   // Subregion, Coal, Oil, ...
-
-        // Add each fuel column to the dropdown
-        header.slice(1).forEach(h => select.add(new Option(h)));
-
-        // Build one clean set of properties per subregion from the CSV
-        var data = {};
-        rows.slice(1).forEach(function (row) {
-          var props = { Subregion: row[0].trim() };
-          header.slice(1).forEach((h, i) => props[h] = parseFloat(row[i + 1]));
-          data[props.Subregion] = props;
+      fetch(url).then(r => r.json()).then(function (geojson) {
+        // "2,1%" (text) -> 2.1 (number)
+        geojson.features.forEach(function (f) {
+          FUELS.forEach(function (fuel) {
+            f.properties[fuel] = parseFloat(String(f.properties[fuel]).replace(',', '.'));
+          });
         });
-
-        // Keep only the shapes from the geojson; every property comes from the CSV
-        geojson.features.forEach(f => f.properties = data[f.properties.Subregion] || {});
 
         map.getSource(LAYER).setData(geojson);
         colorMap();
@@ -76,11 +67,11 @@
 
     select.addEventListener('change', colorMap);
 
-    // Click a region to list its fuel shares (all values come from the CSV)
+    // Click a region to list its fuel shares
     map.on('click', LAYER, function (e) {
       var p = e.features[0].properties;
-      var html = '<b>' + p.Subregion + '</b>' +
-        Object.keys(p).filter(k => k !== 'Subregion').map(k => '<br>' + k + ': ' + p[k] + '%').join('');
+      var html = '<b>' + p.Subregion + ' - ' + p['eGRID subregion name'] + '</b>' +
+        FUELS.map(f => '<br>' + f.replace('- ', '') + ': ' + p[f] + '%').join('');
       new maplibregl.Popup().setLngLat(e.lngLat).setHTML(html).addTo(map);
     });
   </script>
