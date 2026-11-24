@@ -1,406 +1,123 @@
 <!DOCTYPE html>
 <html>
+
 <head>
-  <meta charset="utf-8">
-  <title>eGRID 2023 subregions</title>
-  <link href="https://cdn.jsdelivr.net/npm/maplibre-gl@5.24.0/dist/maplibre-gl.css" rel="stylesheet">
-  <script src="https://cdn.jsdelivr.net/npm/maplibre-gl@5.24.0/dist/maplibre-gl.js"></script>
-  <style>
-    body { margin: 0; font-family: sans-serif; }
-    #map { position: absolute; inset: 0; }
-    .box { position: absolute; background: #fff; padding: 10px 12px; border-radius: 4px;
-           box-shadow: 0 1px 4px rgba(0,0,0,.3); font-size: 13px; }
+    <meta charset="utf-8">
+    <title>Building Permits Vancouver, BC</title>
+    <meta name="viewport" content="initial-scale=1,maximum-scale=1,user-scalable=no">
+    <link href="https://api.mapbox.com/mapbox-gl-js/v3.35.0/mapbox-gl.css" rel="stylesheet">
+    <script src="https://api.mapbox.com/mapbox-gl-js/v3.35.0/mapbox-gl.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/d3@7.9.0/dist/d3.min.js"></script>
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+        }
 
-    #title-box { top: 10px; left: 10px; max-width: 300px; }
-    #title-box h1 { margin: 0 0 2px; font-size: 17px; }
-    #subtitle { color: #555; font-size: 12px; margin-bottom: 8px; }
-    #title-box label { display: block; margin-bottom: 4px; font-weight: bold; }
-    #title-box select { width: 100%; margin-bottom: 8px; }
+        #map {
+            position: fixed;
+            top: 0vh;
+            bottom: 0;
+            width: 100%;
+        }
 
-    #legend { bottom: 30px; left: 10px; width: 250px; }
-    #legend h3 { margin: 0 0 6px; font-size: 13px; }
-    #bar { height: 12px; background: linear-gradient(to right, rgba(33,102,172,.75), rgba(247,247,247,.75), rgba(178,24,43,.75)); border: 1px solid #ccc; }
-    #ticks { display: flex; justify-content: space-between; font-size: 11px; margin-top: 2px; }
-    #legend .note { font-size: 11px; color: #555; margin-top: 6px; line-height: 1.3; }
-    #category-key { display: none; grid-template-columns: 1fr 1fr; gap: 3px 10px; font-size: 11px; margin-top: 6px; }
-    #category-key .swatch { display: inline-block; width: 10px; height: 10px; margin-right: 5px; border: 1px solid #999; vertical-align: middle; }
-    #plant-key { display: none; margin-top: 6px; font-size: 11px; align-items: center; gap: 6px; }
-    #plant-key span.dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: #333; border: 1px solid #fff; box-shadow: 0 0 0 1px #999; }
+        #overlay {
+            position: fixed;
+            top: 5vh;
+            left: 0;
+            width: 100%;
+            height: 95vh;
+            pointer-events: none;
+        }
 
-    #credits { bottom: 30px; right: 10px; max-width: 280px; font-size: 11px; line-height: 1.4; color: #333; }
-    #credits a { color: #1a5fb4; }
+        #controls {
+            position: fixed;
+            z-index: 2;
+            display: flex;
+            left: 0 ;
+            right: 0;
+            bottom: 10vh;
+            align-items: center;
+            width: 65vw;
+            margin: 0 auto;
+            padding: .5rem .75rem;
+            /*added some background so the slide wasnt floating*/
+            box-sizing: border-box;
+            border: 2px solid rgb(96 139 168);
+            border-radius: 5px;
+            background-color: rgb(96 139 168 / 0.2);
+        }
 
-    .maplibregl-popup-content { font-size: 12px; padding: 10px 12px; }
-    .maplibregl-popup-content h4 { margin: 0 0 6px; font-size: 14px; }
-    .maplibregl-popup-content table { border-collapse: collapse; }
-    .maplibregl-popup-content th, .maplibregl-popup-content td { padding: 2px 8px; text-align: right; }
-    .maplibregl-popup-content th:first-child, .maplibregl-popup-content td:first-child { text-align: left; }
-    .maplibregl-popup-content thead th { border-bottom: 1px solid #aaa; }
-    .maplibregl-popup-content tr.active { background: #fbefc4; font-weight: bold; }
-  </style>
+        #controls input[type=range] {
+            flex: 1;
+        }
+
+        #title {
+            position: fixed;
+            top: 5vh;
+            left: 10px;
+            padding: .4rem .75rem;
+            font: bold 1.1rem sans-serif;
+            border: 2px solid rgb(96 139 168);
+            border-radius: 5px;
+            background-color: rgb(255 255 255 / 0.85);
+            z-index: 1;
+        }
+
+        #legend {
+            position: fixed;
+            bottom: 40px;
+            left: 10px;
+            padding: .5rem .75rem;
+            font: 13px sans-serif;
+            border: 2px solid rgb(96 139 168);
+            border-radius: 5px;
+            background-color: rgb(255 255 255 / 0.85);
+            z-index: 1;
+        }
+
+        #legend div {
+            display: flex;
+            align-items: center;
+            gap: .5rem;
+            margin: .2rem 0;
+        }
+
+        .permits {
+            width: 10px;
+            height: 10px;
+            border-radius: 50%;
+            box-sizing: border-box;
+        }
+
+        .permits.soFar {
+            border: 1px solid black;
+            /* matches the hollow black circles */
+        }
+
+        .permits.firstOne {
+            background-color: blue;
+            /* matches the first-permit dot */
+        }
+    </style>
 </head>
+
 <body>
-  <div id="map"></div>
+    <div id="title">Muti-Story Building Permits timeline in Vancouver, BC</div>
+    <div id="controls">
+        <button id="iniciate">Start</button>
+        <input id="slide" type="range" min="0" value="0" step="1">
+        <output id="label"></output>
+    </div>
+    <div id="legend">
+        <div><span class="permits soFar"></span> Building permit issued (up to now)</div>
+        <div><span class="permits firstOne "></span> First permit issued</div>
+    </div>
+    <div id="map"></div>
+    <svg id="overlay"></svg>
 
-  <div id="title-box" class="box">
-    <h1 id="map-title">Power Plants by Fuel Type in eGRID Subregions (2023)</h1>
-    <div id="subtitle"></div>
-    <label for="column-select">Color map by</label>
-    <select id="column-select">
-      <optgroup label="Number of plants">
-        <option value="n_BIOMASS">Biomass</option>
-        <option value="n_COAL">Coal</option>
-        <option value="n_GAS">Gas</option>
-        <option value="n_GEOTHERMAL">Geothermal</option>
-        <option value="n_HYDRO">Hydro</option>
-        <option value="n_NUCLEAR">Nuclear</option>
-        <option value="n_OFSL">Other fossil</option>
-        <option value="n_OIL">Oil</option>
-        <option value="n_OTHF">Other fuel</option>
-        <option value="n_SOLAR">Solar</option>
-        <option value="n_WIND">Wind</option>
-      </optgroup>
-      <optgroup label="Percent of plants">
-        <option value="pct_BIOMASS">Biomass</option>
-        <option value="pct_COAL">Coal</option>
-        <option value="pct_GAS">Gas</option>
-        <option value="pct_GEOTHERMAL">Geothermal</option>
-        <option value="pct_HYDRO">Hydro</option>
-        <option value="pct_NUCLEAR">Nuclear</option>
-        <option value="pct_OFSL">Other fossil</option>
-        <option value="pct_OIL">Oil</option>
-        <option value="pct_OTHF">Other fuel</option>
-        <option value="pct_SOLAR">Solar</option>
-        <option value="pct_WIND">Wind</option>
-      </optgroup>
-      <optgroup label="Top fuel type">
-        <option value="top_fuel">Most common fuel in each region</option>
-      </optgroup>
-    </select>
-    <label style="font-weight: normal;"><input type="checkbox" id="plants-toggle"> Show power plants</label>
-    <label style="font-weight: normal;"><input type="checkbox" id="basemap-toggle" checked> Show background map</label>
-  </div>
+    <script src="map.js"></script>
 
-  <div id="legend" class="box">
-    <h3 id="legend-title"></h3>
-    <div id="bar"></div>
-    <div id="ticks"><span id="t0">0</span><span id="t1"></span><span id="t2"></span></div>
-    <div class="note" id="legend-note"></div>
-    <div id="category-key"></div>
-    <div id="plant-key"><span class="dot"></span> Power plant</div>
-  </div>
-
-  <div id="credits" class="box">
-    <b>Data:</b> U.S. EPA, <a href="https://www.epa.gov/egrid" target="_blank">eGRID 2023</a> (subregion boundaries and power plants).<br>
-    <b>Map tiles:</b> &copy; <a href="https://www.maptiler.com/copyright/" target="_blank">MapTiler</a>
-    &copy; <a href="https://www.openstreetmap.org/copyright" target="_blank">OpenStreetMap contributors</a>
-    (OpenMapTiles, Positron style).<br>
-    <b>Built with:</b> <a href="https://maplibre.org/" target="_blank">MapLibre GL JS</a>
-  </div>
-
-  <script>
-    var POLYGON_LAYER = 'joined_layer_egrid';
-    var POLYGON_SOURCE = 'joined_layer_egrid';
-    var POINT_LAYER = 'point_layer_plants';
-
-    // Fuel codes better written
-    var FUELS = {
-      BIOMASS: 'Biomass',
-      COAL: 'Coal',
-      GAS: 'Gas',
-      GEOTHERMAL: 'Geothermal',
-      HYDRO: 'Hydro',
-      NUCLEAR: 'Nuclear',
-      OFSL: 'Other fossil fuel types',
-      OIL: 'Oil',
-      OTHF: 'Other fuel type',
-      SOLAR: 'Solar',
-      WIND: 'Wind'
-    };
-
-    // One color per fuel 
-    var FUEL_COLORS = {
-      BIOMASS:    'rgba(0, 158, 115, 0.75)',
-      COAL:       'rgba(77, 77, 77, 0.75)',
-      GAS:        'rgba(230, 159, 0, 0.75)',
-      GEOTHERMAL: 'rgba(204, 121, 167, 0.75)',
-      HYDRO:      'rgba(0, 114, 178, 0.75)',
-      NUCLEAR:    'rgba(240, 228, 66, 0.75)',
-      OFSL:       'rgba(166, 118, 29, 0.75)',
-      OIL:        'rgba(213, 94, 0, 0.75)',
-      OTHF:       'rgba(179, 179, 179, 0.75)',
-      SOLAR:      'rgba(86, 180, 233, 0.75)',
-      WIND:       'rgba(123, 50, 148, 0.75)'
-    };
-
-    // Build the categorical legend swatches once
-    var keyHtml = '';
-    for (var code in FUELS) {
-      keyHtml += '<div><span class="swatch" style="background:' + FUEL_COLORS[code] + '"></span>' + FUELS[code] + '</div>';
-    }
-    document.getElementById('category-key').innerHTML = keyHtml;
-
-    var map = new maplibregl.Map({
-      container: 'map',
-      style: 'joined_info_style.json',
-      center: [-98, 39],
-      zoom: 3.5
-    });
-    map.addControl(new maplibregl.NavigationControl());
-
-    var select = document.getElementById('column-select');
-
-    // Max value found in each column (filled in after the data loads)
-    var maxByColumn = {};
-
-
-    // Fill-color expression: pick the fuel with the most plants in each region
-    function topFuelColor() {
-      var codes = Object.keys(FUELS);
-      var expr = ['case'];
-      for (var i = 0; i < codes.length; i++) {
-        var conditions = ['all'];
-        for (var j = 0; j < codes.length; j++) {
-          if (i !== j) {
-            conditions.push(['>=',
-              ['coalesce', ['get', 'n_' + codes[i]], 0],
-              ['coalesce', ['get', 'n_' + codes[j]], 0]]);
-          }
-        }
-        expr.push(conditions, FUEL_COLORS[codes[i]]);
-      }
-      expr.push('rgba(200, 200, 200, 0.75)');
-      return expr;
-    }
-
-
-    function topFuelOf(props) {
-      var best = null;
-      var bestCount = -1;
-      for (var code in FUELS) {
-        var count = props['n_' + code] || 0;
-        if (count > bestCount) {
-          best = code;
-          bestCount = count;
-        }
-      }
-      return best;
-    }
-
-
-    // Change the map colors, legend and subtitle to match the chosen column
-    function colorBy(column) {
-      var bar = document.getElementById('bar');
-      var ticks = document.getElementById('ticks');
-      var categoryKey = document.getElementById('category-key');
-
-      // Top fuel mode: categorical colors and legend
-      if (column === 'top_fuel') {
-        map.setPaintProperty(POLYGON_LAYER, 'fill-color', topFuelColor());
-        bar.style.display = 'none';
-        ticks.style.display = 'none';
-        categoryKey.style.display = 'grid';
-        document.getElementById('subtitle').textContent = 'Fuel type with the most plants (by subregion)';
-        document.getElementById('legend-title').textContent = 'Most common fuel type';
-        document.getElementById('legend-note').textContent = 'Primary fuel with the highest plant count in each subregion.';
-        return;
-      }
-      bar.style.display = 'block';
-      ticks.style.display = 'flex';
-      categoryKey.style.display = 'none';
-
-      var isPercent = column.startsWith('pct_');
-      var fuelCode = column.split('_')[1];
-      var fuelName = FUELS[fuelCode];
-
-      // Top of the color scale. If we don't know it yet, use 100.
-      var max = maxByColumn[column];
-      if (!max) {
-        max = 100;
-      }
-      var middle = max / 2;
-
-      map.setPaintProperty(POLYGON_LAYER, 'fill-color', [
-        'interpolate', ['linear'], ['get', column],
-        0, 'rgba(33, 102, 172, 0.75)',
-        middle, 'rgba(247, 247, 247, 0.75)',
-        max, 'rgba(178, 24, 43, 0.75)'
-      ]);
-
-      // Legend labels
-      var unit = '';
-      if (isPercent) {
-        unit = '%';
-      }
-      // for the legend values and units
-      document.getElementById('t0').textContent = '0' + unit;
-      document.getElementById('t1').textContent = Number(middle.toFixed(1)) + unit;
-      document.getElementById('t2').textContent = Number(max.toFixed(1)) + unit;
-
-      // Subtitle, legend title and legend note
-      var subtitle = '';
-      var legendTitle = '';
-      var note = '';
-      if (isPercent) {
-        subtitle = 'Percent of plants that are ' + fuelName.toLowerCase() + ' (by subregion)';
-        legendTitle = 'Percent of plants: ' + fuelName;
-        note = 'Percent: share of all plants in the subregion that use this fuel as their primary fuel (0-100%).';
-      } else {
-        subtitle = 'Number of plants that are ' + fuelName.toLowerCase() + ' (by subregion)';
-        legendTitle = 'Number of plants: ' + fuelName;
-        note = 'Count: number of plants in the subregion that use this fuel as their primary fuel.';
-      }
-      document.getElementById('subtitle').textContent = subtitle;
-      document.getElementById('legend-title').textContent = legendTitle;
-      document.getElementById('legend-note').textContent = note;
-    }
-
-
-    // table shown in the popup
-    function makePopupHtml(props, column) {
-      var activeFuel = (column === 'top_fuel') ? topFuelOf(props) : column.split('_')[1];
-      var rows = '';
-
-      for (var code in FUELS) {
-        var count = props['n_' + code];
-        var percent = props['pct_' + code];
-
-        if (count === undefined) {
-          count = '-';
-        }
-        if (percent === undefined) {
-          percent = '-';
-        } else {
-          percent = Number(percent).toFixed(1) + '%';
-        }
-
-        var rowClass = '';
-        if (code === activeFuel) {
-          rowClass = 'active';
-        }
-
-        rows = rows + '<tr class="' + rowClass + '">' +
-          '<td>' + FUELS[code] + '</td>' +
-          '<td>' + count + '</td>' +
-          '<td>' + percent + '</td>' +
-          '</tr>';
-      }
-
-      return '<h4>eGRID subregion: ' + props.Subregion + '</h4>' +
-        '<table><thead><tr><th>Fuel</th><th>Plants</th><th>Percent</th></tr></thead>' +
-        '<tbody>' + rows + '</tbody></table>';
-    }
-
-    // Look through the data and remember the biggest value in each column
-    function findMaxValues(geojson) {
-      for (var i = 0; i < geojson.features.length; i++) {
-        var props = geojson.features[i].properties;
-        for (var key in props) {
-          var value = props[key];
-          if (typeof value === 'number') {
-            if (maxByColumn[key] === undefined || value > maxByColumn[key]) {
-              maxByColumn[key] = value;
-            }
-          }
-        }
-      }
-    }
-
-
-    // Runs once the map and style have finished loading
-    map.on('load', function () {
-
-      // Color the map (using 100 as the top of the scale)
-      colorBy(select.value);
-
-      // Then load the data to find the real top of each scale, and color again
-      var dataUrl = map.getSource(POLYGON_SOURCE).serialize().data;
-      fetch(dataUrl)
-        .then(function (response) {
-          return response.json();
-        })
-        .then(function (geojson) {
-          findMaxValues(geojson);
-          colorBy(select.value);
-        }) //should be good to not need this but you never know with this datasources
-        .catch(function (error) {
-          console.log('Could not read the data for the ranges', error);
-        });
-
-      // Look power plant points
-      map.setPaintProperty(POINT_LAYER, 'circle-radius', 3);
-      map.setPaintProperty(POINT_LAYER, 'circle-color', '#333333');
-      map.setPaintProperty(POINT_LAYER, 'circle-stroke-color', '#ffffff');
-      map.setPaintProperty(POINT_LAYER, 'circle-stroke-width', 0.5);
-
-      // Region names at the center of each polygon (under the plant points).
-      map.addLayer({
-        id: 'subregion-labels',
-        type: 'symbol',
-        source: POLYGON_SOURCE,
-        layout: {
-          'text-field': ['get', 'Subregion'],
-          'text-font': ['Noto Sans Regular'],
-          'text-size': 12
-        },
-        paint: {
-          'text-color': '#222222',
-          'text-halo-color': '#ffffff',
-          'text-halo-width': 1.5
-        }
-      }, POINT_LAYER);
-
-      // Click a region to open the popup for the egrid regions only (too many points to do anything like this)
-      map.on('click', POLYGON_LAYER, function (e) {
-        var props = e.features[0].properties;
-        new maplibregl.Popup({ maxWidth: '300px' })
-          .setLngLat(e.lngLat)
-          .setHTML(makePopupHtml(props, select.value))
-          .addTo(map);
-      });
-
-      // hovering
-      map.on('mouseenter', POLYGON_LAYER, function () {
-        map.getCanvas().style.cursor = 'pointer';
-      });
-      map.on('mouseleave', POLYGON_LAYER, function () {
-        map.getCanvas().style.cursor = '';
-      });
-    });
-
-
-    // recolor the map
-    select.addEventListener('change', function () {
-      colorBy(select.value);
-    });
-
-
-    // background map
-    document.getElementById('basemap-toggle').addEventListener('change', function (e) {
-      var visibility = 'none';
-      if (e.target.checked) {
-        visibility = 'visible';
-      }
-
-      var layers = map.getStyle().layers;
-      for (var i = 0; i < layers.length; i++) {
-        if (layers[i].source === 'openmaptiles') {
-          map.setLayoutProperty(layers[i].id, 'visibility', visibility);
-        }
-      }
-    });
-
-
-    // Show or hide the power plants points layer
-    document.getElementById('plants-toggle').addEventListener('change', function (e) {
-      if (e.target.checked) {
-        map.setLayoutProperty(POINT_LAYER, 'visibility', 'visible');
-        document.getElementById('plant-key').style.display = 'flex';
-      } else {
-        map.setLayoutProperty(POINT_LAYER, 'visibility', 'none');
-        document.getElementById('plant-key').style.display = 'none';
-      }
-    });
-  </script>
 </body>
+
 </html>
