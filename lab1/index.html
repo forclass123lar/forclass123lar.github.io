@@ -19,7 +19,7 @@
 
     #legend { bottom: 30px; left: 10px; width: 250px; }
     #legend h3 { margin: 0 0 6px; font-size: 13px; }
-    #bar { height: 12px; background: linear-gradient(to right, rgba(242,241,45,.75), rgba(218,156,32,.75), rgba(139,66,37,.75)); border: 1px solid #ccc; }
+    #bar { height: 12px; background: linear-gradient(to right, rgba(33,102,172,.75), rgba(247,247,247,.75), rgba(178,24,43,.75)); border: 1px solid #ccc; }
     #ticks { display: flex; justify-content: space-between; font-size: 11px; margin-top: 2px; }
     #legend .note { font-size: 11px; color: #555; margin-top: 6px; line-height: 1.3; }
     #plant-key { display: none; margin-top: 6px; font-size: 11px; align-items: center; gap: 6px; }
@@ -141,9 +141,9 @@
 
       map.setPaintProperty(POLYGON_LAYER, 'fill-color', [
         'interpolate', ['linear'], ['get', column],
-        0, 'rgba(242, 241, 45, 0.75)',
-        middle, 'rgba(218, 156, 32, 0.75)',
-        max, 'rgba(139, 66, 37, 0.75)'
+        0, 'rgba(33, 102, 172, 0.75)',
+        middle, 'rgba(247, 247, 247, 0.75)',
+        max, 'rgba(178, 24, 43, 0.75)'
       ]);
 
       // Legend labels
