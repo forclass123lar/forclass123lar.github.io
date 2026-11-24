@@ -22,6 +22,8 @@
     #bar { height: 12px; background: linear-gradient(to right, rgba(33,102,172,.75), rgba(247,247,247,.75), rgba(178,24,43,.75)); border: 1px solid #ccc; }
     #ticks { display: flex; justify-content: space-between; font-size: 11px; margin-top: 2px; }
     #legend .note { font-size: 11px; color: #555; margin-top: 6px; line-height: 1.3; }
+    #category-key { display: none; grid-template-columns: 1fr 1fr; gap: 3px 10px; font-size: 11px; margin-top: 6px; }
+    #category-key .swatch { display: inline-block; width: 10px; height: 10px; margin-right: 5px; border: 1px solid #999; vertical-align: middle; }
     #plant-key { display: none; margin-top: 6px; font-size: 11px; align-items: center; gap: 6px; }
     #plant-key span.dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: #333; border: 1px solid #fff; box-shadow: 0 0 0 1px #999; }
 
@@ -71,6 +73,9 @@
         <option value="pct_SOLAR">Solar</option>
         <option value="pct_WIND">Wind</option>
       </optgroup>
+      <optgroup label="Top fuel type">
+        <option value="top_fuel">Most common fuel in each region</option>
+      </optgroup>
     </select>
     <label style="font-weight: normal;"><input type="checkbox" id="plants-toggle"> Show power plants</label>
     <label style="font-weight: normal;"><input type="checkbox" id="basemap-toggle" checked> Show background map</label>
@@ -81,6 +86,7 @@
     <div id="bar"></div>
     <div id="ticks"><span id="t0">0</span><span id="t1"></span><span id="t2"></span></div>
     <div class="note" id="legend-note"></div>
+    <div id="category-key"></div>
     <div id="plant-key"><span class="dot"></span> Power plant</div>
   </div>
 
@@ -112,6 +118,28 @@
       WIND: 'Wind'
     };
 
+    // One color per fuel (Okabe-Ito based colorblind-friendly palette)
+    var FUEL_COLORS = {
+      BIOMASS:    'rgba(0, 158, 115, 0.75)',
+      COAL:       'rgba(77, 77, 77, 0.75)',
+      GAS:        'rgba(230, 159, 0, 0.75)',
+      GEOTHERMAL: 'rgba(204, 121, 167, 0.75)',
+      HYDRO:      'rgba(0, 114, 178, 0.75)',
+      NUCLEAR:    'rgba(240, 228, 66, 0.75)',
+      OFSL:       'rgba(166, 118, 29, 0.75)',
+      OIL:        'rgba(213, 94, 0, 0.75)',
+      OTHF:       'rgba(179, 179, 179, 0.75)',
+      SOLAR:      'rgba(86, 180, 233, 0.75)',
+      WIND:       'rgba(123, 50, 148, 0.75)'
+    };
+
+    // Build the categorical legend swatches once
+    var keyHtml = '';
+    for (var code in FUELS) {
+      keyHtml += '<div><span class="swatch" style="background:' + FUEL_COLORS[code] + '"></span>' + FUELS[code] + '</div>';
+    }
+    document.getElementById('category-key').innerHTML = keyHtml;
+
     var map = new maplibregl.Map({
       container: 'map',
       style: 'joined_info_style.json',
@@ -126,8 +154,60 @@
     var maxByColumn = {};
 
 
+    // Fill-color expression: pick the fuel with the most plants in each region
+    function topFuelColor() {
+      var codes = Object.keys(FUELS);
+      var expr = ['case'];
+      for (var i = 0; i < codes.length; i++) {
+        var conditions = ['all'];
+        for (var j = 0; j < codes.length; j++) {
+          if (i !== j) {
+            conditions.push(['>=',
+              ['coalesce', ['get', 'n_' + codes[i]], 0],
+              ['coalesce', ['get', 'n_' + codes[j]], 0]]);
+          }
+        }
+        expr.push(conditions, FUEL_COLORS[codes[i]]);
+      }
+      expr.push('rgba(200, 200, 200, 0.75)');
+      return expr;
+    }
+
+    function topFuelOf(props) {
+      var best = null;
+      var bestCount = -1;
+      for (var code in FUELS) {
+        var count = props['n_' + code] || 0;
+        if (count > bestCount) {
+          best = code;
+          bestCount = count;
+        }
+      }
+      return best;
+    }
+
+
     // Change the map colors, legend and subtitle to match the chosen column
     function colorBy(column) {
+      var bar = document.getElementById('bar');
+      var ticks = document.getElementById('ticks');
+      var categoryKey = document.getElementById('category-key');
+
+      // Top fuel mode: categorical colors and legend
+      if (column === 'top_fuel') {
+        map.setPaintProperty(POLYGON_LAYER, 'fill-color', topFuelColor());
+        bar.style.display = 'none';
+        ticks.style.display = 'none';
+        categoryKey.style.display = 'grid';
+        document.getElementById('subtitle').textContent = 'Fuel type with the most plants (by subregion)';
+        document.getElementById('legend-title').textContent = 'Most common fuel type';
+        document.getElementById('legend-note').textContent = 'Primary fuel with the highest plant count in each subregion.';
+        return;
+      }
+      bar.style.display = 'block';
+      ticks.style.display = 'flex';
+      categoryKey.style.display = 'none';
+
       var isPercent = column.startsWith('pct_');
       var fuelCode = column.split('_')[1];
       var fuelName = FUELS[fuelCode];
@@ -177,7 +257,7 @@
 
     // table shown in the popup
     function makePopupHtml(props, column) {
-      var activeFuel = column.split('_')[1];
+      var activeFuel = (column === 'top_fuel') ? topFuelOf(props) : column.split('_')[1];
       var rows = '';
 
       for (var code in FUELS) {
@@ -251,6 +331,24 @@
       map.setPaintProperty(POINT_LAYER, 'circle-color', '#333333');
       map.setPaintProperty(POINT_LAYER, 'circle-stroke-color', '#ffffff');
       map.setPaintProperty(POINT_LAYER, 'circle-stroke-width', 0.5);
+
+      // Region names at the center of each polygon (under the plant points).
+      // If no labels show, replace the font with one used in joined_info_style.json
+      map.addLayer({
+        id: 'subregion-labels',
+        type: 'symbol',
+        source: POLYGON_SOURCE,
+        layout: {
+          'text-field': ['get', 'Subregion'],
+          'text-font': ['Noto Sans Regular'],
+          'text-size': 12
+        },
+        paint: {
+          'text-color': '#222222',
+          'text-halo-color': '#ffffff',
+          'text-halo-width': 1.5
+        }
+      }, POINT_LAYER);
 
       // Click a region to open the popup for the egrid regions only (too many points to do anything like this)
       map.on('click', POLYGON_LAYER, function (e) {
